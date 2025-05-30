@@ -1,21 +1,30 @@
 import { useState } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Login from './components/Login';
+import AdminDashboard from './components/AdminDashboard';
+import MemberDashboard from './components/MemberDashboard';
 
 function App() {
   const [token, setToken] = useState('');
   const [role, setRole] = useState('');
 
-  if (!token) return <Login setToken={setToken} setRole={setRole} />;
-
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">Welcome, {role}</h1>
-      {role === 'admin' ? (
-        <p>Admin Dashboard goes here</p>
-      ) : (
-        <p>Team Member Dashboard goes here</p>
-      )}
-    </div>
+    <Router>
+      <Routes>
+        <Route
+          path="/"
+          element={<Login setToken={setToken} setRole={setRole} />}
+        />
+        <Route
+          path="/admin"
+          element={<AdminDashboard token={token} />}
+        />
+        <Route
+          path="/member"
+          element={<MemberDashboard token={token} />}
+        />
+      </Routes>
+    </Router>
   );
 }
 
