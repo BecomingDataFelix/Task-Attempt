@@ -65,6 +65,7 @@
   align-items: center;
   justify-content: center;
   margin-top: 1.5rem; /* 24px */
+  border: none; /* Remove default button border */
 }
 
 .button:hover {

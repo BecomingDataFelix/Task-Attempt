@@ -1,127 +1,103 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { useUser } from '../context/UserContext';
+import { Task } from '../types';
+import TaskForm from '../tasks/taskForm';
+import TaskList from '../tasks/taskList';
+import Dashboard from './Dashboard';
+import DashboardStyles from './Dashboard.module.css';
 
-interface Props {
-  token: string;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  assignedTo: string;
-  status: string;
-  deadline: string;
-}
-
-function AdminDashboard({ token }: Props) {
+const AdminDashboard: React.FC = () => {
+  const { user, error: contextError, refreshUsers } = useUser();
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [formData, setFormData] = useState({
-    title: '',
-    description: '',
-    assignedTo: '',
-    deadline: '',
-  });
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
+
+  useEffect(() => {
+    // Refresh the user list when the admin dashboard loads
+    refreshUsers();
+  }, []);
 
   const fetchTasks = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/tasks', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
-      setTasks(data);
-    } catch (err) {
-      console.error('Error fetching tasks:', err);
+    if (!user || !user.userId) {
+      setError('User not authenticated');
+      setTasks([]);
+      setLoadingTasks(false);
+      return;
     }
-  };
 
-  const handleCreateTask = async () => {
+    setLoadingTasks(true);
+    setError(null);
+
     try {
-      const response = await fetch('http://localhost:3001/tasks', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (response.ok) {
-        setFormData({ title: '', description: '', assignedTo: '', deadline: '' });
-        fetchTasks();
-      } else {
-        console.error('Failed to create task');
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+      if (!token) {
+        throw new Error('Authentication token not available');
       }
-    } catch (err) {
-      console.error('Error creating task:', err);
+
+      console.log('Fetching tasks with token:', token.substring(0, 20) + '...');
+      
+      const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`Failed to fetch tasks: ${response.statusText}`);
+      }
+
+      const fetchedTasks: Task[] = await response.json();
+      fetchedTasks.sort((a, b) => b.createdAt - a.createdAt);
+      setTasks(fetchedTasks);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error fetching tasks';
+      console.error('Error fetching tasks for admin:', err);
+      setError(errorMessage);
+      setTasks([]);
+    } finally {
+      setLoadingTasks(false);
     }
   };
 
   useEffect(() => {
-    if (token) {
-      fetchTasks();
-    }
-  }, [token]);
+    fetchTasks();
+    const interval = setInterval(fetchTasks, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
+
+  const handleTaskCreated = () => {
+    fetchTasks();
+    // Also refresh the user list in case new users were added
+    refreshUsers();
+  };
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">Admin Dashboard</h1>
-
-      <div className="mb-4">
-        <h2 className="text-lg font-semibold mb-2">Create New Task</h2>
-        <input
-          className="border p-2 mr-2"
-          placeholder="Title"
-          value={formData.title}
-          onChange={e => setFormData({ ...formData, title: e.target.value })}
-        />
-        <input
-          className="border p-2 mr-2"
-          placeholder="Description"
-          value={formData.description}
-          onChange={e => setFormData({ ...formData, description: e.target.value })}
-        />
-        <input
-          className="border p-2 mr-2"
-          placeholder="Assign To"
-          value={formData.assignedTo}
-          onChange={e => setFormData({ ...formData, assignedTo: e.target.value })}
-        />
-        <input
-          className="border p-2 mr-2"
-          type="date"
-          value={formData.deadline}
-          onChange={e => setFormData({ ...formData, deadline: e.target.value })}
-        />
-        <button className="bg-blue-500 text-white px-4 py-2" onClick={handleCreateTask}>
-          Create Task
-        </button>
-      </div>
-
-      <table className="min-w-full bg-white border border-gray-200">
-        <thead>
-          <tr>
-            <th className="py-2 px-4 border-b">Title</th>
-            <th className="py-2 px-4 border-b">Description</th>
-            <th className="py-2 px-4 border-b">Assigned To</th>
-            <th className="py-2 px-4 border-b">Status</th>
-            <th className="py-2 px-4 border-b">Deadline</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map(task => (
-            <tr key={task.id}>
-              <td className="py-2 px-4 border-b">{task.title}</td>
-              <td className="py-2 px-4 border-b">{task.description}</td>
-              <td className="py-2 px-4 border-b">{task.assignedTo}</td>
-              <td className="py-2 px-4 border-b">{task.status}</td>
-              <td className="py-2 px-4 border-b">{new Date(task.deadline).toLocaleDateString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Dashboard
+      title="Admin Dashboard"
+      userInfo={`Welcome, ${user?.name || user?.email || 'Admin'} | User ID: ${user?.userId || 'N/A'}`}
+    >
+      <TaskForm onTaskCreated={handleTaskCreated} />
+      
+      <h3 className={DashboardStyles.sectionTitle}>All Tasks</h3>
+      {(error || contextError) && (
+        <p className={DashboardStyles.error}>{error || contextError}</p>
+      )}
+      {loadingTasks ? (
+        <p className={DashboardStyles.noTasks}>Loading tasks...</p>
+      ) : tasks.length === 0 ? (
+        <p className={DashboardStyles.noTasks}>No tasks found</p>
+      ) : (
+        <TaskList tasks={tasks} isAdmin={true} onTaskUpdated={fetchTasks} />
+      )}
+    </Dashboard>
   );
-}
+};
 
 export default AdminDashboard;

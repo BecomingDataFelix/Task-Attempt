@@ -1,103 +1,154 @@
-import { useState } from 'react';
-import { signUp } from 'aws-amplify/auth';
+import React, { useState } from 'react';
+import { signUp, resendSignUpCode } from 'aws-amplify/auth';
+import SignupStyles from './Signup.module.css';
+import VerifySignup from './VerifySignup';
 
-// Import the CSS Module
-import styles from './Signup.module.css'; // <--- IMPORTANT CHANGE
-
-interface Props {
+interface SignupProps {
   onSuccess: () => void;
 }
 
-function Signup({ onSuccess }: Props) {
+const Signup: React.FC<SignupProps> = ({ onSuccess }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('member');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showVerification, setShowVerification] = useState(false);
 
   const handleSignup = async () => {
+    if (!email || !password) {
+      setError('Please enter both email and password');
+      return;
+    }
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    // Basic password validation (e.g., minimum length)
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters long');
+      return;
+    }
+
     setLoading(true);
+    setError(null);
+
     try {
-      await signUp({
+      const { userId, nextStep } = await signUp({
         username: email,
         password,
         options: {
           userAttributes: {
             email,
-            'custom:role': role,
+            'custom:role': 'member', // Hardcode to 'member' for security
           },
         },
       });
-      alert('Signup successful! Please check your email for a verification code before logging in.');
-      onSuccess();
-    } catch (err) {
+
+      if (nextStep.signUpStep === 'CONFIRM_SIGN_UP') {
+        setShowVerification(true);
+      } else {
+        setError('Unexpected signup step. Please try again.');
+      }
+    } catch (err: any) {
       console.error('Signup Error:', err);
-      alert((err as Error).message || 'An unexpected error occurred during signup. Please try again.');
+      
+      // Handle case where user exists but is not verified
+      if (err.name === 'UsernameExistsException' || 
+          (err.message && err.message.includes('User already exists'))) {
+        try {
+          // Attempt to resend the verification code
+          await resendSignUpCode({ username: email });
+          setShowVerification(true);
+          setError(null);
+        } catch (resendErr: any) {
+          setError(`Failed to resend verification code: ${resendErr.message}`);
+        }
+      } else {
+        setError(err.message || 'An unexpected error occurred during signup');
+      }
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <div className={styles.container}>
-      <div className={styles.card}>
-        <h2 className={styles.title}>Create an Account</h2>
-        <p className={styles.subtitle}>Join us and manage your tasks!</p>
+  if (showVerification) {
+    return (
+      <VerifySignup 
+        email={email} 
+        onSuccess={onSuccess} 
+        onBack={() => setShowVerification(false)} 
+      />
+    );
+  }
 
-        <div className={styles.inputGroup}>
-          <input 
-            className={styles.input} 
-            placeholder="Email Address" 
+  return (
+    <div className={SignupStyles.container}>
+      <div className={SignupStyles.card}>
+        <h2 className={SignupStyles.title}>Create an Account</h2>
+        <p className={SignupStyles.subtitle}>Join us to manage your tasks!</p>
+
+        {error && <p className={SignupStyles.error}>{error}</p>}
+
+        <div className={SignupStyles.inputGroup}>
+          <input
+            className={SignupStyles.input}
+            placeholder="Email Address"
             type="email"
             value={email}
-            onChange={e => setEmail(e.target.value)} 
+            onChange={(e) => setEmail(e.target.value)}
             disabled={loading}
           />
         </div>
-        <div className={styles.inputGroup}>
-          <input 
-            className={styles.input} 
-            type="password" 
-            placeholder="Password" 
+        <div className={SignupStyles.inputGroup}>
+          <input
+            className={SignupStyles.input}
+            type="password"
+            placeholder="Password"
             value={password}
-            onChange={e => setPassword(e.target.value)} 
+            onChange={(e) => setPassword(e.target.value)}
             disabled={loading}
           />
-        </div>
-        <div className={styles.selectWrapper}> {/* Wrapper for select and custom arrow */}
-          <select 
-            className={styles.select} 
-            value={role} 
-            onChange={e => setRole(e.target.value)}
-            disabled={loading}
-          >
-            <option value="member">Team Member</option>
-            <option value="admin">Admin</option>
-          </select>
-          {/* Custom arrow for select input */}
-          <svg className={styles.selectArrow} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
-            <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z"/>
-          </svg>
         </div>
 
-        <button 
-          className={styles.button} 
-          onClick={handleSignup} 
-          disabled={loading}
+        <button
+          className={SignupStyles.button}
+          onClick={handleSignup}
+          disabled={loading || !email || !password}
         >
           {loading ? (
-            <svg className={styles.spinner} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+            <svg
+              className={SignupStyles.spinner}
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+              ></circle>
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
             </svg>
           ) : (
             'Sign Up'
           )}
         </button>
 
-        <p className={styles.loginText}>
-          Already have an account? {' '}
-          <button 
-            className={styles.loginButton} 
+        <p className={SignupStyles.loginText}>
+          Already have an account?{' '}
+          <button
+            className={SignupStyles.loginButton}
             onClick={onSuccess}
             disabled={loading}
           >
@@ -107,6 +158,6 @@ function Signup({ onSuccess }: Props) {
       </div>
     </div>
   );
-}
+};
 
 export default Signup;

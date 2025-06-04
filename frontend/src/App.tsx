@@ -1,31 +1,89 @@
-import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { UserProvider, useUser } from './context/UserContext';
 import Login from './components/Login';
+import Signup from './components/Signup';
 import AdminDashboard from './components/AdminDashboard';
 import MemberDashboard from './components/MemberDashboard';
 
-function App() {
-  const [token, setToken] = useState('');
-  const [role, setRole] = useState('');
+const ProtectedRoute: React.FC<{ children: React.ReactNode; requiredRole?: 'admin' | 'member' }> = ({ children, requiredRole }) => {
+  const { user, isAuthReady } = useUser();
+
+  if (!isAuthReady) {
+    return <div>Loading...</div>;
+  }
+
+  if (!user) {
+    return <Navigate to="/" replace />;
+  }
+
+  if (requiredRole && user.role !== requiredRole) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const AuthRedirect: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { user, isAuthReady } = useUser();
+
+  if (!isAuthReady) {
+    return <div>Loading...</div>;
+  }
+
+  if (user) {
+    return <Navigate to={user.role === 'admin' ? '/admin' : '/member'} replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const App: React.FC = () => {
+  const handleLoginSuccess = () => {
+    // Login success is handled by AuthRedirect
+  };
 
   return (
-    <Router>
-      <Routes>
-        <Route
-          path="/"
-          element={<Login setToken={setToken} setRole={setRole} />}
-        />
-        <Route
-          path="/admin"
-          element={<AdminDashboard token={token} />}
-        />
-        <Route
-          path="/member"
-          element={<MemberDashboard token={token} />}
-        />
-      </Routes>
-    </Router>
+    <UserProvider>
+      <Router>
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <AuthRedirect>
+                <Login onLoginSuccess={handleLoginSuccess} />
+              </AuthRedirect>
+            }
+          />
+          <Route
+            path="/signup"
+            element={
+              <AuthRedirect>
+                <Signup onSuccess={() => {}} />
+              </AuthRedirect>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/member"
+            element={
+              <ProtectedRoute requiredRole="member">
+                <MemberDashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </UserProvider>
   );
-}
+};
 
 export default App;

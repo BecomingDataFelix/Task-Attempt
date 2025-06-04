@@ -1,98 +1,89 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { fetchAuthSession } from 'aws-amplify/auth';
+import { useUser } from '../context/UserContext';
+import { Task } from '../types';
+import TaskList from '../tasks/taskList';
+import Dashboard from './Dashboard';
+import DashboardStyles from './Dashboard.module.css';
 
-interface Props {
-  token: string;
-}
-
-interface Task {
-  id: string;
-  title: string;
-  description: string;
-  status: string;
-  deadline: string;
-}
-
-function MemberDashboard({ token }: Props) {
+const MemberDashboard: React.FC = () => {
+  const { user, error: contextError } = useUser();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000';
 
   const fetchTasks = async () => {
-    try {
-      const response = await fetch('http://localhost:3001/tasks/my', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      const data = await response.json();
-      setTasks(data);
-    } catch (err) {
-      console.error('Error fetching tasks:', err);
+    if (!user || !user.userId) {
+      setError('User not authenticated');
+      setTasks([]);
+      setLoadingTasks(false);
+      return;
     }
-  };
 
-  const handleStatusChange = async (id: string, newStatus: string) => {
+    setLoadingTasks(true);
+    setError(null);
+
     try {
-      const response = await fetch(`http://localhost:3001/tasks/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-      if (response.ok) {
-        fetchTasks();
-      } else {
-        console.error('Failed to update task status');
+      const session = await fetchAuthSession();
+      const token = session.tokens?.idToken?.toString();
+      if (!token) {
+        throw new Error('Authentication token not available');
       }
-    } catch (err) {
-      console.error('Error updating task status:', err);
+
+      console.log('Fetching tasks with token:', token.substring(0, 20) + '...');
+      
+      const response = await fetch(`${API_BASE_URL}/api/tasks`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response:', errorText);
+        throw new Error(`Failed to fetch tasks: ${response.statusText}`);
+      }
+
+      const fetchedTasks: Task[] = await response.json();
+      fetchedTasks.sort((a, b) => b.createdAt - a.createdAt);
+      setTasks(fetchedTasks);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error fetching tasks';
+      console.error('Error fetching tasks for member:', err);
+      setError(errorMessage);
+      setTasks([]);
+    } finally {
+      setLoadingTasks(false);
     }
   };
 
   useEffect(() => {
-    if (token) {
-      fetchTasks();
-    }
-  }, [token]);
+    fetchTasks();
+    const interval = setInterval(fetchTasks, 30000);
+    return () => clearInterval(interval);
+  }, [user]);
 
   return (
-    <div className="p-4">
-      <h1 className="text-xl font-bold mb-4">Team Member Dashboard</h1>
-
-      <table className="min-w-full bg-white border border-gray-200">
-        <thead>
-          <tr>
-            <th className="py-2 px-4 border-b">Title</th>
-            <th className="py-2 px-4 border-b">Description</th>
-            <th className="py-2 px-4 border-b">Status</th>
-            <th className="py-2 px-4 border-b">Deadline</th>
-            <th className="py-2 px-4 border-b">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {tasks.map(task => (
-            <tr key={task.id}>
-              <td className="py-2 px-4 border-b">{task.title}</td>
-              <td className="py-2 px-4 border-b">{task.description}</td>
-              <td className="py-2 px-4 border-b">{task.status}</td>
-              <td className="py-2 px-4 border-b">{new Date(task.deadline).toLocaleDateString()}</td>
-              <td className="py-2 px-4 border-b">
-                <select
-                  className="border p-1"
-                  value={task.status}
-                  onChange={e => handleStatusChange(task.id, e.target.value)}
-                >
-                  <option value="pending">Pending</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+    <Dashboard
+      title="My Tasks"
+      userInfo={`Welcome, ${user?.name || user?.email || 'User'} | User ID: ${user?.userId || 'N/A'}`}
+    >
+      <h3 className={DashboardStyles.sectionTitle}>My Assigned Tasks</h3>
+      {(error || contextError) && (
+        <p className={DashboardStyles.error}>{error || contextError}</p>
+      )}
+      {loadingTasks ? (
+        <p className={DashboardStyles.noTasks}>Loading tasks...</p>
+      ) : tasks.length === 0 ? (
+        <p className={DashboardStyles.noTasks}>No tasks assigned</p>
+      ) : (
+        <TaskList tasks={tasks} isAdmin={false} onTaskUpdated={fetchTasks} />
+      )}
+    </Dashboard>
   );
-}
+};
 
 export default MemberDashboard;
